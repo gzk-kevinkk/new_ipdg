@@ -106,42 +106,14 @@ static FLOAT k_coef = 1.0;
 
 static void materia_coefficient(int reginoid)
 {
-	assert(test_case == 0 || test_case == 1 || test_case == 2 || test_case == 3);
-	if (test_case == 0 || test_case == 1)
+	switch (reginoid)
 	{
-		switch (reginoid)
-		{
-		case 0:
-			k_coef = 1.0;
-			break;
-		case 1:
-			k_coef = 1.0;
-			break;
-		}
-	}
-	else if (test_case == 2)
-	{
-		switch (reginoid)
-		{
-		case 0:
-			k_coef = 1.0;
-			break;
-		case 1:
-			k_coef = 1.0;
-			break;
-		}
-	}
-	else if (test_case == 3)
-	{
-		switch (reginoid)
-		{
-		case 0:
-			k_coef = 0.5;
-			break;
-		case 1:
-			k_coef = 1.0;
-			break;
-		}
+	case 0:
+		k_coef = 0.5;
+		break;
+	case 1:
+		k_coef = 1.0;
+		break;
 	}
 }
 
@@ -168,176 +140,35 @@ bc_map(int bctype)
 static void
 func_u(FLOAT x, FLOAT y, FLOAT z, FLOAT *value)
 {
-	if (test_case == 0 || test_case == 2 || test_case == 3)
-		*value = Cos(2. * PI * x) * Cos(2. * PI * y) * Cos(2. * PI * z);
-	else if (test_case == 1)
-		*value = Exp(x * y * z);
-	// else if (test_case == 3)
-	// {
-	// 	*value = Sin(2. * PI * x) * Sin(2. * PI * y) * Sin(2. * PI * z);
-	// 	if (x >= 0.0)
-	// 		value[0] *= 2.;
-	// }
-}
-
-static void
-func_u_lambda(DOF *str, ELEMENT *e, int bno, const FLOAT *lambda, FLOAT *values)
-{
-	if (test_case == 2)
-	{
-		if (e->region_mark == 0)
-		{
-			values[0] *= 2.0;
-		}
-	}
-	else if (test_case == 3)
-	{
-		if (e->region_mark == 0)
-		{
-			values[0] *= 4.0;
-		}
-	}
+	*value = -3 * (x + y + z);
 }
 
 static void
 func_interface_D(FLOAT x, FLOAT y, FLOAT z, FLOAT *value)
 {
-	assert(test_case == 0 || test_case == 1 || test_case == 2 || test_case == 3);
-	if (test_case == 0 || test_case == 1)
-		*value = 0;
-	else if (test_case == 2)
-	{
-		// *value = 3.0 * Cos(2. * PI * x) * Cos(2. * PI * y) * Cos(2. * PI * z);
-		*value = Cos(2. * PI * x) * Cos(2. * PI * y) * Cos(2. * PI * z);
-	}
-	else if (test_case == 3)
-	{
-		// *value = 3.0 * Cos(2. * PI * x) * Cos(2. * PI * y) * Cos(2. * PI * z);
-		*value = 3 * Cos(2. * PI * x) * Cos(2. * PI * y) * Cos(2. * PI * z);
-	}
+	*value = x + y + z;
 }
 
 static void
 func_grad_u(FLOAT x, FLOAT y, FLOAT z, FLOAT *values)
 {
-	if (test_case == 0 || test_case == 2 || test_case == 3)
-	{
-		FLOAT Cx = Cos(2. * PI * x), Cy = Cos(2. * PI * y), Cz = Cos(2. * PI * z);
-		values[0] = -2. * PI * Sin(2. * PI * x) * Cy * Cz;
-		values[1] = -2. * PI * Cx * Sin(2. * PI * y) * Cz;
-		values[2] = -2. * PI * Cx * Cy * Sin(2. * PI * z);
-	}
-	else if (test_case == 1)
-	{
-		FLOAT u = Exp(x * y * z);
-		values[0] = y * z * u;
-		values[1] = x * z * u;
-		values[2] = x * y * u;
-	}
-	// else if (test_case == 3)
-	// {
-	// 	FLOAT Cx = Sin(2. * PI * x), Cy = Sin(2. * PI * y), Cz = Sin(2. * PI * z);
-	// 	values[0] = 2. * PI * Cos(2. * PI * x) * Cy * Cz;
-	// 	values[1] = 2. * PI * Cx * Cos(2. * PI * y) * Cz;
-	// 	values[2] = 2. * PI * Cx * Cy * Cos(2. * PI * z);
-	// }
-}
-
-static void
-func_grad_lambda(DOF *str, ELEMENT *e, int bno, const FLOAT *lambda, FLOAT *values)
-{
-	if (test_case == 2)
-	{
-		// FLOAT temp = 4.0;
-		FLOAT temp = 2.0;
-		if (e->region_mark == 0)
-		{
-			values[0] *= temp;
-			values[1] *= temp;
-			values[2] *= temp;
-		}
-	}
-	else if (test_case == 3)
-	{
-		// FLOAT temp = 4.0;
-		FLOAT temp = 4.0;
-		if (e->region_mark == 0)
-		{
-			values[0] *= temp;
-			values[1] *= temp;
-			values[2] *= temp;
-		}
-	}
+	values[0] = -3.0;
+	values[1] = -3.0;
+	values[2] = -3.0;
 }
 
 static void
 func_interface_N(FLOAT x, FLOAT y, FLOAT z, FLOAT *values)
 {
-	assert(test_case == 0 || test_case == 1 || test_case == 2 || test_case == 3);
-	if (test_case == 0 || test_case == 1)
-	{
-		values[0] = 0.0;
-		values[1] = 0.0;
-		values[2] = 0.0;
-	}
-	else if (test_case == 2)
-	{
-		FLOAT Cx = Cos(2. * PI * x), Cy = Cos(2. * PI * y), Cz = Cos(2. * PI * z);
-		values[0] = -2. * PI * Sin(2. * PI * x) * Cy * Cz;
-		values[1] = -2. * PI * Cx * Sin(2. * PI * y) * Cz;
-		values[2] = -2. * PI * Cx * Cy * Sin(2. * PI * z);
-	}
-	else if (test_case == 3)
-	{
-		FLOAT Cx = Cos(2. * PI * x), Cy = Cos(2. * PI * y), Cz = Cos(2. * PI * z);
-		values[0] = -2. * PI * Sin(2. * PI * x) * Cy * Cz;
-		values[1] = -2. * PI * Cx * Sin(2. * PI * y) * Cz;
-		values[2] = -2. * PI * Cx * Cy * Sin(2. * PI * z);
-	}
+	values[0] = 0.0;
+	values[1] = 0.0;
+	values[2] = 0.0;
 }
 
 static void
 func_f(FLOAT x, FLOAT y, FLOAT z, FLOAT *value)
 {
-	assert(test_case == 0 || test_case == 1 || test_case == 2 || test_case == 3);
-	if (test_case == 0 || test_case == 2 || test_case == 3)
-	{
-		func_u(x, y, z, value);
-		*value *= 12. * PI * PI;
-	}
-	else if (test_case == 1)
-	{
-		func_u(x, y, z, value);
-		*value *= -(x * x * y * y + x * x * z * z + y * y * z * z);
-	}
-}
-
-static void
-func_f_lambda(DOF *str, ELEMENT *e, int bno, const FLOAT *lambda, FLOAT *values)
-{
-	if (test_case == 2)
-	{
-		if (e->region_mark == 0)
-		{
-			values[0] *= 2.0;
-		}
-		else
-		{
-			values[0] *= 1.0;
-		}
-	}
-	else if (test_case == 3)
-	{
-		if (e->region_mark == 0)
-		{
-			values[0] *= 2.0;
-		}
-		else
-		{
-			values[0] *= 1.0;
-		}
-	}
-	return;
+	*value *= 0.0;
 }
 
 #if 1
