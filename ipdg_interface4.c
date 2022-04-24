@@ -140,35 +140,94 @@ bc_map(int bctype)
 static void
 func_u(FLOAT x, FLOAT y, FLOAT z, FLOAT *value)
 {
-	*value = -3 * (x + y + z);
+	if (test_case == 3)
+		*value = Cos(2. * PI * x) * Cos(2. * PI * y) * Cos(2. * PI * z);
+	else
+		*value = -3 * (x + y + z);
+}
+
+static void
+func_u_lambda(DOF *str, ELEMENT *e, int bno, const FLOAT *lambda, FLOAT *values)
+{
+	if (e->region_mark == 0)
+	{
+		values[0] *= 4.0;
+	}
 }
 
 static void
 func_interface_D(FLOAT x, FLOAT y, FLOAT z, FLOAT *value)
 {
-	*value = x + y + z;
+	if (test_case == 3)
+		*value = 3.0 * Cos(2. * PI * x) * Cos(2. * PI * y) * Cos(2. * PI * z);
+	else
+		*value = x + y + z;
 }
 
 static void
 func_grad_u(FLOAT x, FLOAT y, FLOAT z, FLOAT *values)
 {
-	values[0] = -3.0;
-	values[1] = -3.0;
-	values[2] = -3.0;
+	FLOAT Cx = Cos(2. * PI * x), Cy = Cos(2. * PI * y), Cz = Cos(2. * PI * z);
+	values[0] = -2. * PI * Sin(2. * PI * x) * Cy * Cz;
+	values[1] = -2. * PI * Cx * Sin(2. * PI * y) * Cz;
+	values[2] = -2. * PI * Cx * Cy * Sin(2. * PI * z);
+}
+
+static void
+func_grad_lambda(DOF *str, ELEMENT *e, int bno, const FLOAT *lambda, FLOAT *values)
+{
+	// FLOAT temp = 4.0;
+	FLOAT temp = 4.0;
+	if (e->region_mark == 0)
+	{
+		values[0] *= temp;
+		values[1] *= temp;
+		values[2] *= temp;
+	}
 }
 
 static void
 func_interface_N(FLOAT x, FLOAT y, FLOAT z, FLOAT *values)
 {
-	values[0] = 0.0;
-	values[1] = 0.0;
-	values[2] = 0.0;
+	if (test_case == 3)
+	{
+		FLOAT Cx = Cos(2. * PI * x), Cy = Cos(2. * PI * y), Cz = Cos(2. * PI * z);
+		values[0] = -2. * PI * Sin(2. * PI * x) * Cy * Cz;
+		values[1] = -2. * PI * Cx * Sin(2. * PI * y) * Cz;
+		values[2] = -2. * PI * Cx * Cy * Sin(2. * PI * z);
+	}
+	else
+	{
+		values[0] = 0.0;
+		values[1] = 0.0;
+		values[2] = 0.0;
+	}
 }
 
 static void
 func_f(FLOAT x, FLOAT y, FLOAT z, FLOAT *value)
 {
-	*value *= 0.0;
+	if (test_case == 3)
+	{
+		func_u(x, y, z, value);
+		*value *= 12. * PI * PI;
+	}
+	else
+		*value = 0.0;
+}
+
+static void
+func_f_lambda(DOF *str, ELEMENT *e, int bno, const FLOAT *lambda, FLOAT *values)
+{
+	if (e->region_mark == 0)
+	{
+		values[0] *= 2.0;
+	}
+	else
+	{
+		values[0] *= 1.0;
+	}
+	return;
 }
 
 #if 1
@@ -366,8 +425,8 @@ do_face(SOLVER *solver, DOF *u_h, QCACHE *qc, int Q_gD, int Q_gN, int Q_ifD, int
 			/* -\beta\int_\Gamma if_D {(k \grad v).n} */
 			{
 				a = k_i * phgQCIntegrateFace(
-								 qc, e_i->index, face_i, Q_ifD, PROJ_NONE, 0,
-								 qc, e_i->index, face_i, Q_GRAD, PROJ_DOT, bas_i);
+							  qc, e_i->index, face_i, Q_ifD, PROJ_NONE, 0,
+							  qc, e_i->index, face_i, Q_GRAD, PROJ_DOT, bas_i);
 				a *= 0.5;
 				val = -beta * a;
 			}
@@ -394,8 +453,8 @@ do_face(SOLVER *solver, DOF *u_h, QCACHE *qc, int Q_gD, int Q_gN, int Q_ifD, int
 			/* \int_\Gamma G1 if_N [(k \grad v).n] */
 			{
 				a = k_i * phgQCIntegrateFace(
-								 qc, e_i->index, face_i, Q_ifN, PROJ_DOT, 0,
-								 qc, e_i->index, face_i, Q_GRAD, PROJ_DOT, bas_i);
+							  qc, e_i->index, face_i, Q_ifN, PROJ_DOT, 0,
+							  qc, e_i->index, face_i, Q_GRAD, PROJ_DOT, bas_i);
 				if (e != e_i)
 					a = -a;
 				val += G1 * a;
@@ -490,11 +549,14 @@ int main(int argc, char *argv[])
 		periodicity = 0 /* {1|2|4} (1=x, 2=y, 4=z) */;
 	GRID *g;
 	DOF *u_h, *u_old, *f_h, *error, *gerror, *gu_h;
+	DOF *u_acc, *u_temp, **u_olds;
 	SOLVER *solver;
 	size_t mem_peak;
 	double t, L2norm, H1norm, L2err, H1err;
 	BOOLEAN vtk_flag = FALSE, rel_err = FALSE, show_cond = FALSE;
 	int level, total_level;
+	int index_it = 0;
+	int temp_it;
 #ifndef PHG_TO_P4EST
 	BOOLEAN hp_test = FALSE;
 	phgOptionsRegisterNoArg("-hp_test", "Test h-p DOF", &hp_test);
@@ -571,6 +633,7 @@ int main(int argc, char *argv[])
 	}
 	phgDofSetDirichletBoundaryMask(u_h, 0);
 	phgDofSetDataByValue(u_h, 0.0);
+	u_olds = (DOF **)phgAlloc(sizeof(DOF *) * (refine / refine_step + 1));
 
 	while (TRUE)
 	{
@@ -601,6 +664,7 @@ int main(int argc, char *argv[])
 		solver = phgSolverCreate(SOLVER_DEFAULT, u_h, NULL);
 		/* RHS function */
 		f_h = phgDofNew(g, DOF_DEFAULT, 1, "f_h", func_f);
+		phgDofSetDataByLambdaFunction(f_h, func_f_lambda);
 		build_linear_system(solver, u_h, f_h);
 		phgDofFree(&f_h);
 		phgPrintf("%" dFMT " DOF, build time: %0.4lg\n", DofDataCountGlobal(u_h),
@@ -608,7 +672,6 @@ int main(int argc, char *argv[])
 		if (show_cond)
 			phgPrintf("    Condition number: %0.2le\n",
 					  phgMatConditionNumber(solver->mat));
-		u_old = phgDofCopy(u_h, NULL, NULL, "u_old");
 		if (dump_mat)
 		{
 			phgMatDumpMATLAB(solver->mat, "A", "A.m");
@@ -630,6 +693,10 @@ int main(int argc, char *argv[])
 				  (double)solver->residual, mem_peak / (1024.0 * 1024.0),
 				  phgGetTime(NULL) - t);
 		phgSolverDestroy(&solver);
+		u_olds[index_it] = phgDofNew(g, u_h->type, 1, "u_old", DofInterpolation);
+		u_old = phgDofNew(g, u_h->type, 1, "u_old", DofInterpolation);
+		phgDofCopy(u_h, &u_olds[index_it], NULL, NULL);
+		index_it++;
 
 #if PRINT_BD_INFO
 		ELEMENT *ee;
@@ -651,12 +718,15 @@ int main(int argc, char *argv[])
 #endif
 
 		t = phgGetTime(NULL);
+
+#if 0
 #ifndef PHG_TO_P4EST
 		if (u_h->hp != NULL)
 			error = phgHPDofNew(g, u_h->hp, 1, "error", func_u);
 		else
 #endif /* PHG_TO_P4EST */
 			error = phgDofNew(g, u_h->type, 1, "error", func_u);
+		phgDofSetDataByLambdaFunction(error, func_u_lambda);
 		gerror = phgDofGradient(error, NULL, NULL, NULL);
 		gu_h = phgDofGradient(u_h, NULL, NULL, NULL);
 		if (rel_err)
@@ -703,6 +773,10 @@ int main(int argc, char *argv[])
 		phgDofFree(&error);
 		phgDofFree(&gerror);
 		phgDofFree(&gu_h);
+#else
+		phgDofFree(&u_old);
+		phgPrintf("\n");
+#endif
 
 		if (refine <= 0)
 			break;
@@ -714,8 +788,56 @@ int main(int argc, char *argv[])
 		total_level += level;
 	}
 
-	phgDofFree(&u_h);
+	u_acc = phgDofNew(g, DOF_DG4, 1, "u_acc", DofInterpolation);
+	phgDofCopy(u_h, &u_acc, NULL, NULL);
+	{
+		phgPrintf("Building linear equations: ");
+		t = phgGetTime(NULL);
+		solver = phgSolverCreate(SOLVER_DEFAULT, u_acc, NULL);
+		/* RHS function */
+		f_h = phgDofNew(g, u_acc->type, 1, "f_h", func_f);
+		phgDofSetDataByLambdaFunction(f_h, func_f_lambda);
+		build_linear_system(solver, u_acc, f_h);
+		phgDofFree(&f_h);
+		phgPrintf("%" dFMT " DOF, build time: %0.4lg\n", DofDataCountGlobal(u_acc),
+				  phgGetTime(NULL) - t);
+		if (show_cond)
+			phgPrintf("    Condition number: %0.2le\n",
+					  phgMatConditionNumber(solver->mat));
+		phgPrintf("Solving linear equations with %s:\n",
+				  solver->oem_solver->name);
+		t = phgGetTime(NULL);
+		phgSolverSolve(solver, TRUE, u_acc, NULL);
+		phgMemoryUsage(g, &mem_peak);
+		phgPrintf("    nits: %d; residual: %lg; peak mem: %0.2lfMB, "
+				  "solve time: %0.4lg\n",
+				  solver->nits,
+				  (double)solver->residual, mem_peak / (1024.0 * 1024.0),
+				  phgGetTime(NULL) - t);
+		phgSolverDestroy(&solver);
+		t = phgGetTime(NULL);
+	}
 
+	temp_it = 0;
+	while (temp_it < index_it)
+	{
+		u_temp = phgDofCopy(u_acc, NULL, NULL, "u_temp");
+		phgDofAXPY(-1.0, u_olds[temp_it], &u_temp);
+		gerror = phgDofGradient(u_temp, NULL, NULL, NULL);
+		L2err = phgDofNormL2(u_temp);
+		H1err = phgDofNormL2(gerror);
+		H1err += L2err;
+		phgPrintf("index = %d\n", temp_it);
+		phgPrintf("%s errors: L2 = %0.5le; H1 = %0.5le;\n\n ",
+				  "Absolute", L2err, H1err);
+		phgDofFree(&u_olds[temp_it]);
+		phgDofFree(&u_temp);
+		phgDofFree(&gerror);
+		temp_it++;
+	}
+
+	phgDofFree(&u_h);
+	phgDofFree(&u_acc);
 	phgFreeGrid(&g);
 
 	phgFinalize();

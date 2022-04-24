@@ -140,35 +140,150 @@ bc_map(int bctype)
 static void
 func_u(FLOAT x, FLOAT y, FLOAT z, FLOAT *value)
 {
-	*value = -3 * (x + y + z);
+	if (test_case == 3)
+		*value = Cos(2. * PI * x) * Cos(2. * PI * y) * Cos(2. * PI * z);
+	else
+		*value = -3 * (x + y + z);
+}
+
+static void
+func_u_lambda(DOF *str, ELEMENT *e, int bno, const FLOAT *lambda, FLOAT *values)
+{
+	if (e->region_mark == 0)
+	{
+		values[0] *= 4.0;
+	}
 }
 
 static void
 func_interface_D(FLOAT x, FLOAT y, FLOAT z, FLOAT *value)
 {
-	*value = x + y + z;
+	if (test_case == 3)
+		*value = 3.0 * Cos(2. * PI * x) * Cos(2. * PI * y) * Cos(2. * PI * z);
+	else
+		*value = x + y + z;
 }
 
 static void
 func_grad_u(FLOAT x, FLOAT y, FLOAT z, FLOAT *values)
 {
-	values[0] = -3.0;
-	values[1] = -3.0;
-	values[2] = -3.0;
+	FLOAT Cx = Cos(2. * PI * x), Cy = Cos(2. * PI * y), Cz = Cos(2. * PI * z);
+	values[0] = -2. * PI * Sin(2. * PI * x) * Cy * Cz;
+	values[1] = -2. * PI * Cx * Sin(2. * PI * y) * Cz;
+	values[2] = -2. * PI * Cx * Cy * Sin(2. * PI * z);
+}
+
+static void
+func_grad_lambda(DOF *str, ELEMENT *e, int bno, const FLOAT *lambda, FLOAT *values)
+{
+	// FLOAT temp = 4.0;
+	materia_coefficient(e->region_mark);
+	if (e->region_mark == 0)
+	{
+		values[0] *= k_coef;
+		values[1] *= k_coef;
+		values[2] *= k_coef;
+	}
 }
 
 static void
 func_interface_N(FLOAT x, FLOAT y, FLOAT z, FLOAT *values)
 {
-	values[0] = 0.0;
-	values[1] = 0.0;
-	values[2] = 0.0;
+	if (test_case == 3)
+	{
+		FLOAT Cx = Cos(2. * PI * x), Cy = Cos(2. * PI * y), Cz = Cos(2. * PI * z);
+		values[0] = -2. * PI * Sin(2. * PI * x) * Cy * Cz;
+		values[1] = -2. * PI * Cx * Sin(2. * PI * y) * Cz;
+		values[2] = -2. * PI * Cx * Cy * Sin(2. * PI * z);
+	}
+	else
+	{
+		values[0] = 0.0;
+		values[1] = 0.0;
+		values[2] = 0.0;
+	}
 }
 
 static void
 func_f(FLOAT x, FLOAT y, FLOAT z, FLOAT *value)
 {
-	*value *= 0.0;
+	if (test_case == 3)
+	{
+		func_u(x, y, z, value);
+		*value *= 12. * PI * PI;
+	}
+	else
+		*value = 0.0;
+}
+
+static void
+func_f_lambda(DOF *str, ELEMENT *e, int bno, const FLOAT *lambda, FLOAT *values)
+{
+	if (e->region_mark == 0)
+	{
+		values[0] *= 2.0;
+	}
+	else
+	{
+		values[0] *= 1.0;
+	}
+	return;
+}
+
+static void
+estimate_error(DOF *u_h, DOF *f_h, DOF *grad_u, DOF *error)
+/* compute H1 error indicator */
+{
+    GRID *g = u_h->g;
+    ELEMENT *e;
+    DOF *jump, *residual, *tmp;
+	DOF *jump2, *boundary_residual, *temp, *jump3;
+
+	jump = phgQuadFaceJump(grad_u, DOF_PROJ_DOT, NULL, QUAD_DEFAULT);
+	jump2 = phgQuadFaceJump(u_h, DOF_PROJ_NONE, NULL, QUAD_DEFAULT);
+    tmp = phgDofDivergence(grad_u, NULL, NULL, NULL);
+	residual = phgDofGetSameOrderDG(u_h, -1, NULL);
+    boundary_residual = phgDofGetSameOrderDG(u_h, -1, NULL);
+	temp = phgDofGetSameOrderDG(u_h, -1, NULL);
+	phgDofSetDataByFunction(temp, func_u);
+	phgDofCopy(f_h, &residual, NULL, NULL);
+	phgDofCopy(u_h, &boundary_residual, NULL, NULL); 
+    phgDofAXPY(-1.0, u_h, &residual);
+    phgDofAXPY(1.0, tmp, &residual);
+	phgDofAXPY(-1.0, temp, &boundary_residual);
+	jump3 = phgQuadFaceJump(boundary_residual, DOF_PROJ_NONE, NULL, QUAD_DEFAULT);
+    phgDofFree(&tmp);
+    ForAllElements(g, e) {
+	int i;
+	FLOAT eta, h;
+	FLOAT diam = phgGeomGetDiameter(g, e);
+	eta = 0.0;
+	/* for each face F compute [grad_u \cdot n] */
+	for (i = 0; i < NFace; i++) {
+	    if (e->bound_type[i] & (DIRICHLET | NEUMANN)) /* boundary face */
+		{
+			// eta += *DofFaceData(jump3, e->faces[i]) / h * 2.0;
+		}
+		else
+		{
+			h = phgGeomGetFaceDiameter(g, e, i);
+	    	eta += *DofFaceData(jump, e->faces[i]) * h;
+			// if (e->bound_type[i] & INTERFACE)
+			// 	eta += *DofFaceData(jump2, e->faces[i]) / h;
+		}	  
+	}
+	eta = eta * .5 + diam * diam * phgQuadDofDotDof(e, residual, residual,
+								QUAD_DEFAULT);
+	*DofElementData(error, e->index) = eta;
+    }
+    phgDofFree(&jump);
+	phgDofFree(&jump2);
+	phgDofFree(&jump3);
+    phgDofFree(&residual);
+	phgDofFree(&temp);
+	phgDofFree(&boundary_residual);
+
+	return;
 }
 
 #if 1
@@ -366,8 +481,8 @@ do_face(SOLVER *solver, DOF *u_h, QCACHE *qc, int Q_gD, int Q_gN, int Q_ifD, int
 			/* -\beta\int_\Gamma if_D {(k \grad v).n} */
 			{
 				a = k_i * phgQCIntegrateFace(
-								 qc, e_i->index, face_i, Q_ifD, PROJ_NONE, 0,
-								 qc, e_i->index, face_i, Q_GRAD, PROJ_DOT, bas_i);
+							  qc, e_i->index, face_i, Q_ifD, PROJ_NONE, 0,
+							  qc, e_i->index, face_i, Q_GRAD, PROJ_DOT, bas_i);
 				a *= 0.5;
 				val = -beta * a;
 			}
@@ -394,8 +509,8 @@ do_face(SOLVER *solver, DOF *u_h, QCACHE *qc, int Q_gD, int Q_gN, int Q_ifD, int
 			/* \int_\Gamma G1 if_N [(k \grad v).n] */
 			{
 				a = k_i * phgQCIntegrateFace(
-								 qc, e_i->index, face_i, Q_ifN, PROJ_DOT, 0,
-								 qc, e_i->index, face_i, Q_GRAD, PROJ_DOT, bas_i);
+							  qc, e_i->index, face_i, Q_ifN, PROJ_DOT, 0,
+							  qc, e_i->index, face_i, Q_GRAD, PROJ_DOT, bas_i);
 				if (e != e_i)
 					a = -a;
 				val += G1 * a;
@@ -486,15 +601,24 @@ int main(int argc, char *argv[])
 {
 	// char *fn = "../p4est/cube.mesh"; /* hexahedral mesh */
 	char *fn = "cube.medit"; /* tetrahedron mesh */
+	FLOAT tol = 5e-1;
 	INT refine0 = 0, refine = 0, refine_step = 1,
 		periodicity = 0 /* {1|2|4} (1=x, 2=y, 4=z) */;
 	GRID *g;
 	DOF *u_h, *u_old, *f_h, *error, *gerror, *gu_h;
+	DOF *u_acc, *u_temp, **u_olds;
+	DOF *grad_u;
 	SOLVER *solver;
 	size_t mem_peak;
+	INT max_iter = 10;
+	INT cur_iter = 0;
+	INT mem_max = 400;
 	double t, L2norm, H1norm, L2err, H1err;
 	BOOLEAN vtk_flag = FALSE, rel_err = FALSE, show_cond = FALSE;
 	int level, total_level;
+	int index_it = 0;
+	int temp_it;
+	FLOAT indicator;
 #ifndef PHG_TO_P4EST
 	BOOLEAN hp_test = FALSE;
 	phgOptionsRegisterNoArg("-hp_test", "Test h-p DOF", &hp_test);
@@ -504,6 +628,8 @@ int main(int argc, char *argv[])
 	XFEM_INFO *xi = phgXFEMInit(NULL, NULL, 0, NULL, 0);
 #endif /* INTERFACE_TEST */
 
+	phgOptionsRegisterInt("max_iter", "Maximum refinement", &max_iter);
+	phgOptionsRegisterInt("mem_max", "Maximum memory (MB)", &mem_max);
 	phgOptionsRegisterFilename("-mesh_file", "Mesh file", &fn);
 	phgOptionsRegisterInt("-periodicity", "Set periodicity", &periodicity);
 	phgOptionsRegisterInt("-refine0", "Initial refinement levels", &refine0);
@@ -571,6 +697,8 @@ int main(int argc, char *argv[])
 	}
 	phgDofSetDirichletBoundaryMask(u_h, 0);
 	phgDofSetDataByValue(u_h, 0.0);
+	error = phgDofNew(g, DOF_P0, 1, "error indicator", DofNoAction);
+	u_olds = (DOF **)phgAlloc(sizeof(DOF *) * max_iter);
 
 	while (TRUE)
 	{
@@ -601,14 +729,13 @@ int main(int argc, char *argv[])
 		solver = phgSolverCreate(SOLVER_DEFAULT, u_h, NULL);
 		/* RHS function */
 		f_h = phgDofNew(g, DOF_DEFAULT, 1, "f_h", func_f);
+		phgDofSetDataByLambdaFunction(f_h, func_f_lambda);
 		build_linear_system(solver, u_h, f_h);
-		phgDofFree(&f_h);
 		phgPrintf("%" dFMT " DOF, build time: %0.4lg\n", DofDataCountGlobal(u_h),
 				  phgGetTime(NULL) - t);
 		if (show_cond)
 			phgPrintf("    Condition number: %0.2le\n",
 					  phgMatConditionNumber(solver->mat));
-		u_old = phgDofCopy(u_h, NULL, NULL, "u_old");
 		if (dump_mat)
 		{
 			phgMatDumpMATLAB(solver->mat, "A", "A.m");
@@ -630,6 +757,49 @@ int main(int argc, char *argv[])
 				  (double)solver->residual, mem_peak / (1024.0 * 1024.0),
 				  phgGetTime(NULL) - t);
 		phgSolverDestroy(&solver);
+		u_olds[index_it] = phgDofNew(g, u_h->type, 1, "u_old", DofInterpolation);
+		u_old = phgDofNew(g, u_h->type, 1, "u_old", DofInterpolation);
+		phgDofCopy(u_h, &u_olds[index_it], NULL, NULL);
+		index_it++;
+
+		if (1)
+		{
+			grad_u = phgDofGradient(u_h, NULL, NULL, NULL);
+			phgDofSetDataByLambdaFunction(grad_u, func_grad_lambda);
+			estimate_error(u_h, f_h, grad_u, error);
+			indicator = Sqrt(phgDofNormL1Vec(error));
+			phgDofFree(&grad_u);
+			phgDofFree(&f_h);
+			t = phgGetTime(NULL);
+			phgDofFree(&u_old);
+			phgPrintf("\n");
+			cur_iter++;
+			if (indicator < tol || mem_peak >= 1024 * (size_t)mem_max * 1024 || cur_iter >= max_iter)
+			{
+				break;
+			}	
+			phgMarkRefine(MARK_DEFAULT, error, Pow(0.8,2), NULL, 0., 1,
+			Pow(tol, 2) / g->nleaf_global);
+			phgRefineMarkedElements(g);
+			phgBalanceGrid(g, 1.2, 0, NULL, 1.0);
+		}
+		else
+		{
+			phgDofFree(&f_h);
+
+			if (refine <= 0)
+			break;
+
+			level = refine > refine_step ? refine_step : refine;
+			phgRefineAllElements(g, level);
+			phgBalanceGrid(g, 1.2, 0, NULL, 1.0);
+			refine -= level;
+			total_level += level;
+
+			t = phgGetTime(NULL);
+			phgDofFree(&u_old);
+			phgPrintf("\n");
+		}
 
 #if PRINT_BD_INFO
 		ELEMENT *ee;
@@ -649,75 +819,61 @@ int main(int argc, char *argv[])
 		}
 		return 0;
 #endif
+		
+	}
 
+	u_acc = phgDofNew(g, DOF_DG4, 1, "u_acc", DofInterpolation);
+	phgDofCopy(u_h, &u_acc, NULL, NULL);
+	{
+		phgPrintf("Building linear equations: ");
 		t = phgGetTime(NULL);
-#ifndef PHG_TO_P4EST
-		if (u_h->hp != NULL)
-			error = phgHPDofNew(g, u_h->hp, 1, "error", func_u);
-		else
-#endif /* PHG_TO_P4EST */
-			error = phgDofNew(g, u_h->type, 1, "error", func_u);
-		gerror = phgDofGradient(error, NULL, NULL, NULL);
-		gu_h = phgDofGradient(u_h, NULL, NULL, NULL);
-		if (rel_err)
-		{
-			L2norm = phgDofNormL2(error);
-			H1norm = phgDofNormL2(gerror);
-			H1norm += L2norm;
-#if 1
-			/* get max(|u|,|u_h|) (comment out to revert to before 20211209 */
-			t = phgDofNormL2(u_h);
-			if (L2norm < t)
-				L2norm = t;
-			t += phgDofNormL2(gu_h);
-			if (H1norm < t)
-				H1norm = t;
-#endif
-			L2norm = L2norm == 0. ? 1.0 : L2norm;
-			H1norm = H1norm == 0. ? 1.0 : H1norm;
-		}
-		else
-		{
-			L2norm = H1norm = 1.0;
-		}
-		phgDofAXPY(-1.0, u_h, &error);
-		phgDofAXPY(-1.0, gu_h, &gerror);
-		L2err = phgDofNormL2(error);
+		solver = phgSolverCreate(SOLVER_DEFAULT, u_acc, NULL);
+		/* RHS function */
+		f_h = phgDofNew(g, u_acc->type, 1, "f_h", func_f);
+		phgDofSetDataByLambdaFunction(f_h, func_f_lambda);
+		build_linear_system(solver, u_acc, f_h);
+		phgDofFree(&f_h);
+		phgPrintf("%" dFMT " DOF, build time: %0.4lg\n", DofDataCountGlobal(u_acc),
+				  phgGetTime(NULL) - t);
+		if (show_cond)
+			phgPrintf("    Condition number: %0.2le\n",
+					  phgMatConditionNumber(solver->mat));
+		phgPrintf("Solving linear equations with %s:\n",
+				  solver->oem_solver->name);
+		t = phgGetTime(NULL);
+		phgSolverSolve(solver, TRUE, u_acc, NULL);
+		phgMemoryUsage(g, &mem_peak);
+		phgPrintf("    nits: %d; residual: %lg; peak mem: %0.2lfMB, "
+				  "solve time: %0.4lg\n\n",
+				  solver->nits,
+				  (double)solver->residual, mem_peak / (1024.0 * 1024.0),
+				  phgGetTime(NULL) - t);
+		phgSolverDestroy(&solver);
+		t = phgGetTime(NULL);
+	}
+
+	temp_it = 0;
+	while (temp_it < index_it)
+	{
+		u_temp = phgDofCopy(u_acc, NULL, NULL, "u_temp");
+		phgDofAXPY(-1.0, u_olds[temp_it], &u_temp);
+		gerror = phgDofGradient(u_temp, NULL, NULL, NULL);
+		L2err = phgDofNormL2(u_temp);
 		H1err = phgDofNormL2(gerror);
 		H1err += L2err;
-		phgDofAXPY(-1.0, u_h, &u_old);
-		phgPrintf("%s errors: L2 = %0.5le; H1 = %0.5le; "
-				  "|u_h-u_H| = %0.5le\n\n",
-				  rel_err ? "Relative" : "Absolute",
-				  L2err / L2norm, H1err / H1norm,
-				  (double)phgDofNormL2(u_old) / L2norm);
-		if (vtk_flag)
-		{
-			char name[128];
-			sprintf(name, "ipdg-%02d.vtk", total_level);
-			phgExportVTK(g, name, u_h, error, NULL);
-			phgPrintf("\"%s\" created.\n", name); /* FIXME: DG to VTK? */
-		}
-
-		phgDofFree(&u_old);
-		phgDofFree(&error);
+		phgPrintf("index = %d\n", temp_it);
+		phgPrintf("%s errors: L2 = %0.5le; H1 = %0.5le;\n\n ",
+				  "Absolute", L2err, H1err);
+		phgDofFree(&u_olds[temp_it]);
+		phgDofFree(&u_temp);
 		phgDofFree(&gerror);
-		phgDofFree(&gu_h);
-
-		if (refine <= 0)
-			break;
-
-		level = refine > refine_step ? refine_step : refine;
-		phgRefineAllElements(g, level);
-		phgBalanceGrid(g, 1.2, 0, NULL, 1.0);
-		refine -= level;
-		total_level += level;
+		temp_it++;
 	}
 
 	phgDofFree(&u_h);
-
+	phgDofFree(&u_acc);
+	phgDofFree(&error);
 	phgFreeGrid(&g);
-
 	phgFinalize();
 
 	return 0;
